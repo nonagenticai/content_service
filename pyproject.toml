@@ -1,0 +1,187 @@
+[project]
+license = "Apache-2.0"
+name = "content-service"
+version = "0.1.0"
+description = "Unified content generation microservice: storyline, narration, shot list, and Playwright scripts"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi[all]>=0.135.0",
+
+    "uvicorn[standard]>=0.41.0",
+
+    "psycopg[binary,pool]>=3.3.0",
+
+    "sqlalchemy[asyncio]>=2.0.48",
+
+    "pydantic>=2.12.0",
+
+    "pydantic-settings>=2.14.2",  # GHSA-4xgf-cpjx-pc3j fixed in 2.14.2
+
+    "python-dotenv>=1.2.0",
+
+    "redis>=7.3.0",
+
+    "alembic>=1.18.0",
+
+    "httpx>=0.28.0",
+
+    "cachetools>=7.0.0",
+
+    "jinja2>=3.1.6",
+
+    "playwright>=1.58.0",
+
+    "prometheus-client>=0.21.0",
+
+    # >=0.93.0: the P7 cell lane (CELL_AUTH_MODE=dual|enforce, auth/cell_jwt.py)
+    # with signed subject/licence attribution, which every in-cell minter sends.
+    # content-service has no cell code of its own: create_app's AuthMiddleware
+    # carries the lane and gitops sets CELL_* (tests/test_cell_auth_mode.py).
+    "w2v-common>=0.93.0",
+
+    # --- Security floors on transitive dependencies ---
+    # cryptography is not imported by this service directly; it arrives through
+    # other pins — `w2v-common`, which depends on `cryptography` outright and
+    # also on `pyjwt[crypto]`. The lock is already at a safe version; this floor
+    # is what stops it drifting back. A lock is a point-in-time resolution, so
+    # the next unrelated `uv lock` is free to walk an undeclared transitive down
+    # again. The declared floor is the only thing that binds it. (aiohttp
+    # carries the sibling CVEs fleet-wide but is not resolved by this repo at
+    # all, so no floor is declared for it here.)
+    #
+    # cryptography: CVE-2026-69247 (GHSA-g6cj-pr64-35w5) was introduced in
+    # 44.0.0 and fixed in 50.0.0, so the previously-locked 49.0.0 was affected.
+    "cryptography>=50.0.0",
+]
+
+[project.scripts]
+content-service = "src.asgi:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+artifacts = [
+    "src/templates/scripts/*.md",
+    "src/templates/scripts/mobile/*.md",
+    "src/scaffold/*.json",
+    "src/scaffold/*.ts",
+    "src/scaffold/helpers/*.ts",
+    "src/scaffold_mobile/*.json",
+    "src/scaffold_mobile/*.ts",
+    "src/scaffold_mobile/helpers/*.ts",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+
+    "pytest-asyncio>=1.3.0",
+
+    "pytest-cov>=7.0.0",
+
+    "pytest-mock>=3.15.0",
+
+    "pytest-timeout>=2.4.0",
+
+    "httpx>=0.28.0",
+    "ruff>=0.16.5",
+
+    "ty>=0.0.75",
+
+    "pip-audit>=2.10.0",
+    # pip is a transitive dep of pip-audit (pip-audit -> pip-api -> pip).
+    # Explicit floor: pip < 26.2 is vulnerable to PYSEC-2026-3721.
+    "pip>=26.2",
+
+    "detect-secrets>=1.5.0",
+    "bandit>=1.9.4",
+    "schemathesis>=4.12.0",
+
+    "fakeredis>=2.34.0",
+    "respx>=0.22.0",
+]
+
+[tool.uv]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "N", "W", "UP", "ANN", "B", "BLE", "A", "S", "C901",
+    "RUF", "RET", "SIM", "ASYNC", "PTH", "TID251",
+]
+ignore = [
+    "E501",
+    "B008",
+    "ASYNC240",
+    "ASYNC109"
+]
+
+# uuid7 is the id standard (stdlib, py3.14). TID251 bans `uuid4` in production
+# code via ruff — enforced in CI (`ruff check .`), not only local pre-commit.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"uuid.uuid4".msg = "uuid7 is the w2v id standard — use uuid.uuid7() (stdlib, py3.14)."
+
+[tool.ruff.lint.per-file-ignores]
+"src/asgi.py" = ["E402", "ANN401"]
+"src/database/migrations/*" = ["I001", "ANN"]
+"src/llm/retry.py" = ["S311"]
+"src/services/scripts/prompt_builder.py" = ["S105"]
+"tests/**/*.py" = ["S101", "S104", "S105", "S106", "S107", "S108", "ANN", "PTH", "ASYNC230", "ASYNC240", "SIM117", "TID251"]
+
+# ── ANN401 ratchet (see [tool.ruff.lint].ignore note) ─────────────────────────
+# These files still carry `Any` in a function signature. Do NOT add to this list.
+# When you type a file's seam with pydantic models, DELETE its line here — that
+# re-enables ANN401 for the file and locks the win in. Target: empty.
+"src/api/narrative/_shared.py" = ["ANN401"]
+"src/cache/cache_keys.py" = ["ANN401"]
+"src/infra/redis_client.py" = ["ANN401"]
+"src/services/narrative/shotlist_builder.py" = ["ANN401"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "unit: unit tests",
+    "integration: integration tests",
+]
+filterwarnings = [
+    "ignore:coroutine '.*AsyncMockMixin._execute_mock_call.*' was never awaited:RuntimeWarning",
+]
+
+[tool.coverage.report]
+fail_under = 80
+
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.rules]
+import-not-found = "error"
+unresolved-reference = "error"
+missing-attribute = "error"
+possibly-unresolved-reference = "error"
+possibly-missing-attribute = "error"
+missing-argument = "error"
+invalid-argument-type = "error"
+invalid-explicit-return = "error"
+
+[tool.bandit]
+targets = ["src/"]
+exclude_dirs = ["tests", ".venv", "migrations"]
+skips = ["B311"]
+
+[tool.bandit.assert_used]
+skips = ["*/tests/*"]
+
+[tool.uv.sources]
+# The published source tree resolves its shared library from the public
+# repository at the release tag; the private index is not reachable here.
+w2v-common = { git = "https://github.com/nonagenticai/w2v_common", tag = "v0.115.4" }
